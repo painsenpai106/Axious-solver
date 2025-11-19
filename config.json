@@ -1,0 +1,9 @@
+{
+  "GROQ_API_KEY": "",
+  "MULTIBOT_API_KEY": "",
+  "models": {
+    "vision_model": "meta-llama/llama-4-scout-17b-16e-instruct",
+    "fallback_model": "llama-3.1-8b-instant"
+  },
+  "debug": false
+}
