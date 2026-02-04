@@ -1,6 +1,6 @@
 {
-  "GROQ_API_KEY": "",
-  "MULTIBOT_API_KEY": "",
+  "GROQ_API_KEY": "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",
+  "MULTIBOT_API_KEY": "v6vgtSlzK2MDFU2Q7ndcadVzoNfZ7oZ6",
   "models": {
     "vision_model": "meta-llama/llama-4-scout-17b-16e-instruct",
     "fallback_model": "llama-3.1-8b-instant"
