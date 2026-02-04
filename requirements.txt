@@ -5,3 +5,6 @@ requests
 httpx
 asyncio
 jwt
+fastapi
+uvicorn
+pydantic
