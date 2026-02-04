@@ -1,8 +1,6 @@
 # api.py
 """
-FastAPI server for hCaptcha Solver
-- POST /solve
-- Skips Multibot if key missing or zero balance → falls back to Groq-only
+FastAPI server for hCaptcha Solver - Groq-only version (Multibot removed)
 """
 
 import os
@@ -40,7 +38,7 @@ def realtime_print(message: str):
     print(f"{Fore.WHITE}{ts}{Style.RESET_ALL} │ {Fore.CYAN}SOLVER{Style.RESET_ALL} │ {Fore.BRIGHT}{message}{Style.RESET_ALL}")
 
 # ────────────────────────────────────────────────────────────────
-# Your original functions (unchanged)
+# Original functions (unchanged)
 # ────────────────────────────────────────────────────────────────
 
 def create_session(proxy=None):
@@ -68,7 +66,7 @@ def create_session(proxy=None):
     }
     
     if proxy:
-        proxy_url = f'http://{proxy}' if '@' not in proxy else f'http://{proxy}'
+        proxy_url = f'http://{proxy}'
         session.proxies = {'http': proxy_url, 'https': proxy_url}
         debug_print(f"Using proxy: {proxy.split('@')[1] if '@' in proxy else proxy}")
     else:
@@ -94,7 +92,7 @@ def get_hcaptcha_version(proxy=None) -> str:
         return "c3663008fb8d8104807d55045f8251cbe96a2f84"
 
 # ────────────────────────────────────────────────────────────────
-# HCaptchaSolver class (modified to support Multibot fallback)
+# HCaptchaSolver - Multibot completely removed
 # ────────────────────────────────────────────────────────────────
 
 class HCaptchaSolver:
@@ -105,29 +103,20 @@ class HCaptchaSolver:
         self.proxy = proxy
         self.session = create_session(proxy)
         self.ai_agent = AIAgent()
-        self.real_time_mode = real_time_mode
+        self.real_time_mode = False  # Force off — no Multibot = no realistic mouse
         self.HCAPTCHA_VERSION = get_hcaptcha_version(proxy)
         
-        # Load Multibot key from env
-        self.multibot_api_key = os.getenv("MULTIBOT_API_KEY")
-        self.use_multibot = bool(self.multibot_api_key)
-        
-        if self.use_multibot:
-            debug_print("Multibot enabled")
-        else:
-            debug_print("WARNING: No MULTIBOT_API_KEY → falling back to Groq-only mode (no mouse simulation)")
-            self.real_time_mode = False  # disable advanced mode if no Multibot
-        
-        self.motion = motion_data(self.session.headers["user-agent"], f"https://{self.host}")
-        
+        debug_print("Multibot removed → running in Groq-only mode (vision only)")
         debug_print(f"Initializing HCaptchaSolver:")
         debug_print(f"  Sitekey: {sitekey}")
         debug_print(f"  Host: {self.host}")
         debug_print(f"  RQData: {rqdata[:50] if rqdata else 'None'}...")
         debug_print(f"  Proxy: {proxy.split('@')[1] if proxy and '@' in proxy else proxy if proxy else 'None'}")
-        debug_print(f"  Using Multibot: {self.use_multibot}")
-        debug_print(f"  Real-time mode: {self.real_time_mode}")
+        debug_print(f"  Version: {self.HCAPTCHA_VERSION}")
+        debug_print("Real-time mouse simulation disabled (no Multibot)")
 
+        self.motion = motion_data(self.session.headers["user-agent"], f"https://{self.host}")
+        
         self.stats = {
             'total_attempts': 0,
             'successful_solves': 0,
@@ -136,23 +125,21 @@ class HCaptchaSolver:
             'last_solve_time': None
         }
 
-    # ────────────────────────────────────────────────────────────────
-    # Your other methods remain unchanged
-    # Just paste them here: get_site_config, get_hsw_token, fetch_challenge,
+    # Paste your original methods here (unchanged):
+    # get_site_config, get_hsw_token, fetch_challenge,
     # format_challenge_answers, submit_solution, solve_captcha
-    # ────────────────────────────────────────────────────────────────
-
-    # Example: if you have motion usage in solve_captcha or elsewhere,
-    # it will still work — but without Multibot it uses basic motion_data only
+    #
+    # IMPORTANT: If any method uses Multibot directly (e.g. motion_data with Multibot),
+    # comment out or remove those lines. The basic motion_data() call is safe and will be used.
 
 # ────────────────────────────────────────────────────────────────
 # FastAPI app
 # ────────────────────────────────────────────────────────────────
 
 app = FastAPI(
-    title="Discord hCaptcha Solver API (Multibot fallback)",
-    description="Solves hCaptcha using Groq + optional Multibot mouse paths",
-    version="1.1"
+    title="Discord hCaptcha Solver API (Groq-only)",
+    description="Solves hCaptcha using Groq vision (Multibot removed)",
+    version="1.2"
 )
 
 class SolveRequest(BaseModel):
@@ -160,7 +147,6 @@ class SolveRequest(BaseModel):
     rqdata: Optional[str] = None
     host: str = "discord.com"
     proxy: Optional[str] = None
-    real_time_mode: bool = True
 
 @app.post("/solve")
 async def solve_endpoint(request: SolveRequest):
@@ -172,17 +158,12 @@ async def solve_endpoint(request: SolveRequest):
             host=request.host,
             rqdata=request.rqdata,
             proxy=request.proxy,
-            real_time_mode=request.real_time_mode
+            real_time_mode=False  # always off now
         )
 
-        # Load Groq key (required)
         groq_key = os.getenv("GROQ_API_KEY")
         if not groq_key:
             raise ValueError("GROQ_API_KEY is required and not set")
-
-        # Multibot key is optional now
-        solver.multibot_api_key = os.getenv("MULTIBOT_API_KEY")
-        solver.use_multibot = bool(solver.multibot_api_key)
 
         result = await solver.solve_captcha()
 
@@ -193,7 +174,7 @@ async def solve_endpoint(request: SolveRequest):
                 "token": result.get("token"),
                 "time_taken": result.get("time_taken", 0),
                 "challenges_solved": result.get("challenges_solved", 0),
-                "message": result.get("message", "Solved") + (" [Multibot]" if solver.use_multibot else " [Groq-only]")
+                "message": "Solved (Groq vision only)"
             }
         else:
             realtime_print(f"Failed: {result.get('error', 'Unknown error')}")
@@ -207,11 +188,7 @@ async def solve_endpoint(request: SolveRequest):
 
 @app.get("/health")
 async def health():
-    return {"status": "ok", "debug": DEBUG_MODE, "multibot_enabled": bool(os.getenv("MULTIBOT_API_KEY"))}
-
-# ────────────────────────────────────────────────────────────────
-# Run server
-# ────────────────────────────────────────────────────────────────
+    return {"status": "ok", "debug": DEBUG_MODE, "mode": "Groq-only (Multibot removed)"}
 
 if __name__ == "__main__":
     port = int(os.getenv("PORT", "8000"))
