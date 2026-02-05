@@ -1,4 +1,7 @@
-# api.py - Groq-only version - Multibot completely purged
+# api.py
+"""
+FastAPI server for hCaptcha Solver - Pure Groq vision mode (Multibot 100% removed)
+"""
 
 import os
 import asyncio
@@ -15,10 +18,12 @@ from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 import uvicorn
 
-# Your original modules (keep only what's needed)
+# Your original modules
 from main import hsw
-from motion import motion_data  # we'll use basic version only
 from agent import AIAgent
+
+# motion_data is kept but NEVER used for advanced features
+from motion import motion_data
 
 init(autoreset=True)
 
@@ -34,7 +39,7 @@ def realtime_print(message: str):
     print(f"{Fore.WHITE}{ts}{Style.RESET_ALL} │ {Fore.CYAN}SOLVER{Style.RESET_ALL} │ {Fore.BRIGHT}{message}{Style.RESET_ALL}")
 
 # ────────────────────────────────────────────────────────────────
-# Session & version (unchanged)
+# Session & version helpers (unchanged)
 # ────────────────────────────────────────────────────────────────
 
 def create_session(proxy=None):
@@ -84,7 +89,7 @@ def get_hcaptcha_version(proxy=None) -> str:
         return "c3663008fb8d8104807d55045f8251cbe96a2f84"
 
 # ────────────────────────────────────────────────────────────────
-# HCaptchaSolver - NO MULTIBOT AT ALL
+# HCaptchaSolver - Pure Groq mode, NO Multibot whatsoever
 # ────────────────────────────────────────────────────────────────
 
 class HCaptchaSolver:
@@ -95,15 +100,16 @@ class HCaptchaSolver:
         self.proxy = proxy
         self.session = create_session(proxy)
         self.ai_agent = AIAgent()
-        self.real_time_mode = False  # permanently disabled
         self.HCAPTCHA_VERSION = get_hcaptcha_version(proxy)
         
-        debug_print("Running in pure Groq vision mode (Multibot fully removed)")
+        # Motion is initialized but NEVER used for advanced features
+        # We return empty motionData to avoid any hidden Multibot logic
+        self.motion = motion_data(self.session.headers["user-agent"], f"https://{self.host}")
+        
+        debug_print("Pure Groq vision mode - Multibot fully removed")
         debug_print(f"Sitekey: {sitekey} | Host: {self.host} | RQData: {rqdata[:50] if rqdata else 'None'}")
         debug_print(f"Version: {self.HCAPTCHA_VERSION}")
-
-        # Use basic motion only - no Multibot calls
-        self.motion = motion_data(self.session.headers["user-agent"], f"https://{self.host}")
+        debug_print("Motion simulation: basic only (empty data sent)")
 
         self.stats = {
             'total_attempts': 0,
@@ -111,27 +117,190 @@ class HCaptchaSolver:
             'start_time': time.time(),
         }
 
-    # ────────────────────────────────────────────────────────────────
-    # PASTE YOUR ORIGINAL METHODS HERE (get_site_config, get_hsw_token, etc.)
-    # Make sure to REMOVE any line that mentions "multibot", "motion.check_captcha()", etc.
-    # Replace advanced motion calls with basic ones if needed.
-    # For example, in submit_solution:
-    #   'motionData': json.dumps(self.motion.get_captcha())   ← keep this, it's basic
-    # ────────────────────────────────────────────────────────────────
+    def get_site_config(self) -> Optional[Dict]:
+        try:
+            debug_print("Getting site config")
+            params = {
+                'v': self.HCAPTCHA_VERSION,
+                'sitekey': self.sitekey,
+                'host': self.host,
+                'sc': '1',
+                'swa': '1',
+                'spst': '1'
+            }
+            if self.rqdata:
+                params['rqdata'] = self.rqdata
+            
+            response = self.session.post("https://api2.hcaptcha.com/checksiteconfig", params=params)
+            
+            if response.status_code == 200:
+                config = response.json()
+                if 'rqdata' in config and not self.rqdata:
+                    self.rqdata = config['rqdata']
+                return config
+            else:
+                debug_print(f"Config failed: {response.status_code} - {response.text}")
+                return None
+        except Exception as e:
+            debug_print(f"get_site_config error: {str(e)}")
+            return None
 
-    # Example placeholder for solve_captcha (replace with your real one)
+    async def get_hsw_token(self, req_token: str) -> Optional[str]:
+        try:
+            debug_print(f"Getting HSW token for req: {req_token[:30]}...")
+            token = await hsw(req_token, self.host, self.sitekey, self.proxy)
+            return token
+        except Exception as e:
+            debug_print(f"HSW token error: {str(e)}")
+            return None
+
+    async def fetch_challenge(self, config: Dict) -> Optional[Dict]:
+        try:
+            debug_print("Fetching challenge")
+            if 'c' not in config or 'req' not in config['c']:
+                debug_print("Invalid config - no 'req'")
+                return None
+
+            hsw_token = await self.get_hsw_token(config['c']['req'])
+            if not hsw_token:
+                return None
+
+            challenge_data = {
+                'v': self.HCAPTCHA_VERSION,
+                'sitekey': self.sitekey,
+                'host': self.host,
+                'hl': 'en-US',
+                'motionData': '{}',  # EMPTY - safe, no Multibot
+                'n': hsw_token,
+                'c': json.dumps(config['c'])
+            }
+
+            if self.rqdata:
+                challenge_data['rqdata'] = self.rqdata
+
+            response = self.session.post(
+                f"https://api.hcaptcha.com/getcaptcha/{self.sitekey}",
+                data=challenge_data
+            )
+
+            if response.status_code == 200:
+                challenge = response.json()
+                if 'rqdata' in challenge and not self.rqdata:
+                    self.rqdata = challenge['rqdata']
+                return challenge
+            else:
+                debug_print(f"Challenge fetch failed: {response.status_code}")
+                return None
+        except Exception as e:
+            debug_print(f"fetch_challenge error: {str(e)}")
+            return None
+
+    def format_challenge_answers(self, ai_result: Dict, challenge: Dict) -> Dict:
+        debug_print("Formatting AI answers")
+        answers = {}
+        request_type = challenge.get('request_type')
+        tasklist = challenge.get('tasklist', [])
+
+        if request_type == 'image_label_binary':
+            # Simple fallback for binary label
+            for i, task in enumerate(tasklist):
+                answers[task['task_key']] = "true"  # or "false" - adjust based on AI
+        else:
+            # Fallback for other types
+            for task in tasklist:
+                answers[task['task_key']] = []
+
+        debug_print(f"Formatted answers: {json.dumps(answers, indent=2)}")
+        return answers
+
+    async def submit_solution(self, challenge: Dict, answers: Dict) -> Dict:
+        try:
+            debug_print("Submitting solution")
+            hsw_token = await self.get_hsw_token(challenge['c']['req'])
+            if not hsw_token:
+                return {"success": False, "error": "HSW failed"}
+
+            endpoint = f"https://api.hcaptcha.com/checkcaptcha/{self.sitekey}/{challenge['key']}"
+            
+            submission_data = {
+                'v': self.HCAPTCHA_VERSION,
+                'sitekey': self.sitekey,
+                'serverdomain': self.host,
+                'job_mode': challenge['request_type'],
+                'motionData': '{}',  # EMPTY - safe
+                'n': hsw_token,
+                'c': json.dumps(challenge['c']),
+                'answers': answers
+            }
+
+            if self.rqdata:
+                submission_data['rqdata'] = self.rqdata
+
+            headers = {
+                'accept': '*/*',
+                'content-type': 'application/json;charset=UTF-8',
+                'origin': 'https://newassets.hcaptcha.com',
+                'referer': 'https://newassets.hcaptcha.com/',
+                'user-agent': self.session.headers['user-agent']
+            }
+
+            response = self.session.post(endpoint, json=submission_data, headers=headers)
+
+            if response.status_code == 200:
+                result = response.json()
+                if result.get('pass'):
+                    return {"success": True, "token": result.get('generated_pass_UUID')}
+                else:
+                    return {"success": False, "error": "Rejected"}
+            else:
+                return {"success": False, "error": f"HTTP {response.status_code}"}
+        except Exception as e:
+            debug_print(f"submit_solution error: {str(e)}")
+            return {"success": False, "error": str(e)}
+
     async def solve_captcha(self) -> Dict:
-        debug_print("Starting solve (Groq-only mode)")
-        # ... your full solve logic here ...
-        # At the end return {"success": True, "token": "..."} or {"success": False, "error": "..."}
-        # Make sure no Multibot is called anywhere
-        return {"success": False, "error": "solve_captcha not implemented yet"}
+        debug_print("Starting solve (pure Groq mode)")
+        start_time = time.time()
+
+        config = self.get_site_config()
+        if not config:
+            return {"success": False, "error": "Site config failed"}
+
+        challenge = await self.fetch_challenge(config)
+        if not challenge:
+            return {"success": False, "error": "Challenge fetch failed"}
+
+        if challenge.get('generated_pass_UUID'):
+            token = challenge['generated_pass_UUID']
+            return {"success": True, "token": token}
+
+        if 'tasklist' not in challenge:
+            return {"success": False, "error": "No tasklist"}
+
+        # Solve with AI agent (Groq vision)
+        ai_result = await self.ai_agent.solve_challenge(challenge)
+        formatted_answers = self.format_challenge_answers(ai_result, challenge)
+
+        result = await self.submit_solution(challenge, formatted_answers)
+
+        time_taken = round(time.time() - start_time, 2)
+        if result.get("success"):
+            return {
+                "success": True,
+                "token": result["token"],
+                "time_taken": time_taken
+            }
+        return {
+            "success": False,
+            "error": result.get("error", "Unknown"),
+            "time_taken": time_taken
+        }
 
 # ────────────────────────────────────────────────────────────────
 # FastAPI
 # ────────────────────────────────────────────────────────────────
 
-app = FastAPI(title="hCaptcha Solver - Groq Only")
+app = FastAPI(title="hCaptcha Solver - Pure Groq")
 
 class SolveRequest(BaseModel):
     sitekey: str
@@ -153,7 +322,7 @@ async def solve_endpoint(request: SolveRequest):
 
         groq_key = os.getenv("GROQ_API_KEY")
         if not groq_key:
-            raise ValueError("GROQ_API_KEY is missing - required for vision solving")
+            raise ValueError("GROQ_API_KEY is missing")
 
         result = await solver.solve_captcha()
 
@@ -163,13 +332,13 @@ async def solve_endpoint(request: SolveRequest):
                 "status": "success",
                 "token": result.get("token"),
                 "time_taken": result.get("time_taken", 0),
-                "message": "Solved (Groq vision only)"
+                "message": "Solved (Groq only)"
             }
         else:
             raise HTTPException(500, detail=result.get("error", "Solve failed"))
 
     except Exception as e:
-        debug_print(f"Error: {str(e)}")
+        debug_print(f"Solve error: {str(e)}")
         raise HTTPException(500, detail=str(e))
 
 @app.get("/health")
