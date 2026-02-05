@@ -1,7 +1,4 @@
-# api.py
-"""
-FastAPI server for hCaptcha Solver - Groq-only version (Multibot removed)
-"""
+# api.py - Groq-only version - Multibot completely purged
 
 import os
 import asyncio
@@ -14,14 +11,13 @@ import tls_client
 import re
 from colorama import Fore, Style, init
 
-# FastAPI imports
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 import uvicorn
 
-# Your original modules
+# Your original modules (keep only what's needed)
 from main import hsw
-from motion import motion_data
+from motion import motion_data  # we'll use basic version only
 from agent import AIAgent
 
 init(autoreset=True)
@@ -38,7 +34,7 @@ def realtime_print(message: str):
     print(f"{Fore.WHITE}{ts}{Style.RESET_ALL} │ {Fore.CYAN}SOLVER{Style.RESET_ALL} │ {Fore.BRIGHT}{message}{Style.RESET_ALL}")
 
 # ────────────────────────────────────────────────────────────────
-# Original functions (unchanged)
+# Session & version (unchanged)
 # ────────────────────────────────────────────────────────────────
 
 def create_session(proxy=None):
@@ -68,9 +64,7 @@ def create_session(proxy=None):
     if proxy:
         proxy_url = f'http://{proxy}'
         session.proxies = {'http': proxy_url, 'https': proxy_url}
-        debug_print(f"Using proxy: {proxy.split('@')[1] if '@' in proxy else proxy}")
-    else:
-        debug_print("No proxy configured")
+        debug_print(f"Using proxy: {proxy}")
     
     return session
 
@@ -84,63 +78,60 @@ def get_hcaptcha_version(proxy=None) -> str:
             version = version_matches[1]
             debug_print(f"hCaptcha version: {version}")
             return version
-        default_version = "c3663008fb8d8104807d55045f8251cbe96a2f84"
-        debug_print(f"Using default version: {default_version}")
-        return default_version
+        return "c3663008fb8d8104807d55045f8251cbe96a2f84"
     except Exception as e:
-        debug_print(f"Error fetching version: {str(e)}")
+        debug_print(f"Version fetch error: {str(e)}")
         return "c3663008fb8d8104807d55045f8251cbe96a2f84"
 
 # ────────────────────────────────────────────────────────────────
-# HCaptchaSolver - Multibot completely removed
+# HCaptchaSolver - NO MULTIBOT AT ALL
 # ────────────────────────────────────────────────────────────────
 
 class HCaptchaSolver:
-    def __init__(self, sitekey: str, host: str, rqdata: str = None, proxy: str = None, real_time_mode: bool = False):
+    def __init__(self, sitekey: str, host: str, rqdata: str = None, proxy: str = None):
         self.sitekey = sitekey
         self.host = host.split("//")[-1].split("/")[0]
         self.rqdata = rqdata
         self.proxy = proxy
         self.session = create_session(proxy)
         self.ai_agent = AIAgent()
-        self.real_time_mode = False  # Force off — no Multibot = no realistic mouse
+        self.real_time_mode = False  # permanently disabled
         self.HCAPTCHA_VERSION = get_hcaptcha_version(proxy)
         
-        debug_print("Multibot removed → running in Groq-only mode (vision only)")
-        debug_print(f"Initializing HCaptchaSolver:")
-        debug_print(f"  Sitekey: {sitekey}")
-        debug_print(f"  Host: {self.host}")
-        debug_print(f"  RQData: {rqdata[:50] if rqdata else 'None'}...")
-        debug_print(f"  Proxy: {proxy.split('@')[1] if proxy and '@' in proxy else proxy if proxy else 'None'}")
-        debug_print(f"  Version: {self.HCAPTCHA_VERSION}")
-        debug_print("Real-time mouse simulation disabled (no Multibot)")
+        debug_print("Running in pure Groq vision mode (Multibot fully removed)")
+        debug_print(f"Sitekey: {sitekey} | Host: {self.host} | RQData: {rqdata[:50] if rqdata else 'None'}")
+        debug_print(f"Version: {self.HCAPTCHA_VERSION}")
 
+        # Use basic motion only - no Multibot calls
         self.motion = motion_data(self.session.headers["user-agent"], f"https://{self.host}")
-        
+
         self.stats = {
             'total_attempts': 0,
             'successful_solves': 0,
-            'challenge_types': {},
             'start_time': time.time(),
-            'last_solve_time': None
         }
 
-    # Paste your original methods here (unchanged):
-    # get_site_config, get_hsw_token, fetch_challenge,
-    # format_challenge_answers, submit_solution, solve_captcha
-    #
-    # IMPORTANT: If any method uses Multibot directly (e.g. motion_data with Multibot),
-    # comment out or remove those lines. The basic motion_data() call is safe and will be used.
+    # ────────────────────────────────────────────────────────────────
+    # PASTE YOUR ORIGINAL METHODS HERE (get_site_config, get_hsw_token, etc.)
+    # Make sure to REMOVE any line that mentions "multibot", "motion.check_captcha()", etc.
+    # Replace advanced motion calls with basic ones if needed.
+    # For example, in submit_solution:
+    #   'motionData': json.dumps(self.motion.get_captcha())   ← keep this, it's basic
+    # ────────────────────────────────────────────────────────────────
+
+    # Example placeholder for solve_captcha (replace with your real one)
+    async def solve_captcha(self) -> Dict:
+        debug_print("Starting solve (Groq-only mode)")
+        # ... your full solve logic here ...
+        # At the end return {"success": True, "token": "..."} or {"success": False, "error": "..."}
+        # Make sure no Multibot is called anywhere
+        return {"success": False, "error": "solve_captcha not implemented yet"}
 
 # ────────────────────────────────────────────────────────────────
-# FastAPI app
+# FastAPI
 # ────────────────────────────────────────────────────────────────
 
-app = FastAPI(
-    title="Discord hCaptcha Solver API (Groq-only)",
-    description="Solves hCaptcha using Groq vision (Multibot removed)",
-    version="1.2"
-)
+app = FastAPI(title="hCaptcha Solver - Groq Only")
 
 class SolveRequest(BaseModel):
     sitekey: str
@@ -150,20 +141,19 @@ class SolveRequest(BaseModel):
 
 @app.post("/solve")
 async def solve_endpoint(request: SolveRequest):
-    debug_print(f"New solve request → sitekey={request.sitekey}")
+    debug_print(f"Solve request: sitekey={request.sitekey}")
 
     try:
         solver = HCaptchaSolver(
             sitekey=request.sitekey,
             host=request.host,
             rqdata=request.rqdata,
-            proxy=request.proxy,
-            real_time_mode=False  # always off now
+            proxy=request.proxy
         )
 
         groq_key = os.getenv("GROQ_API_KEY")
         if not groq_key:
-            raise ValueError("GROQ_API_KEY is required and not set")
+            raise ValueError("GROQ_API_KEY is missing - required for vision solving")
 
         result = await solver.solve_captcha()
 
@@ -173,31 +163,20 @@ async def solve_endpoint(request: SolveRequest):
                 "status": "success",
                 "token": result.get("token"),
                 "time_taken": result.get("time_taken", 0),
-                "challenges_solved": result.get("challenges_solved", 0),
                 "message": "Solved (Groq vision only)"
             }
         else:
-            realtime_print(f"Failed: {result.get('error', 'Unknown error')}")
-            raise HTTPException(status_code=500, detail=result.get("error", "Solve failed"))
+            raise HTTPException(500, detail=result.get("error", "Solve failed"))
 
     except Exception as e:
-        import traceback
-        error_detail = f"{type(e).__name__}: {str(e)}\n{traceback.format_exc(limit=3)}"
-        debug_print(f"Solve endpoint error: {error_detail}")
-        raise HTTPException(status_code=500, detail=str(e))
+        debug_print(f"Error: {str(e)}")
+        raise HTTPException(500, detail=str(e))
 
 @app.get("/health")
 async def health():
-    return {"status": "ok", "debug": DEBUG_MODE, "mode": "Groq-only (Multibot removed)"}
+    return {"status": "ok", "mode": "Groq-only"}
 
 if __name__ == "__main__":
-    port = int(os.getenv("PORT", "8000"))
-    debug_print(f"Starting API server on port {port}")
-    uvicorn.run(
-        "api:app",
-        host="0.0.0.0",
-        port=port,
-        reload=False,
-        workers=1,
-        log_level="info"
-    )
+    port = int(os.getenv("PORT", 8000))
+    debug_print(f"Starting server on port {port}")
+    uvicorn.run("api:app", host="0.0.0.0", port=port, reload=False, log_level="info")
