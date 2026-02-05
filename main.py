@@ -1,7 +1,24 @@
-import tls_client, re, asyncio, json, os, random
+import tls_client
+import re
+import asyncio
+import json
+import os
+import random
+from typing import Optional
 from camoufox.async_api import AsyncCamoufox
-from motion import COMMON_SCREEN_SIZES
 import jwt
+
+# Hardcoded screen sizes (no more import from motion.py)
+COMMON_SCREEN_SIZES = [
+    (1920, 1080),
+    (1366, 768),
+    (1536, 864),
+    (1440, 900),
+    (1280, 720),
+    (1600, 900),
+    (2560, 1440),
+    (1680, 1050)
+]
 
 def load_config():
     try:
@@ -40,15 +57,16 @@ def get_random_proxy():
         }
     return None
 
-async def hsw(req: str, site: str, sitekey: str, proxy: str = None) -> str:
+async def hsw(req: str, site: str, sitekey: str, proxy: Optional[str] = None) -> Optional[str]:
+    """
+    Generates hCaptcha HSW token using Camoufox browser emulation.
+    Fully compatible with current setup - no Multibot dependency.
+    """
     try:
         session = tls_client.Session(client_identifier="chrome_130", random_tls_extension_order=True)
         
         if proxy:
-            if '@' in proxy:
-                proxy_url = f"http://{proxy}"
-            else:
-                proxy_url = f"http://{proxy}"
+            proxy_url = f'http://{proxy}'
             session.proxies = {
                 'http': proxy_url,
                 'https': proxy_url
@@ -102,6 +120,7 @@ async def hsw(req: str, site: str, sitekey: str, proxy: str = None) -> str:
             )
             page = await context.new_page()
             
+            # Block unnecessary requests to speed up
             await page.route(f"https://{site}/", lambda r: r.fulfill(
                 status=200, 
                 content_type="text/html",
@@ -110,27 +129,43 @@ async def hsw(req: str, site: str, sitekey: str, proxy: str = None) -> str:
             
             await page.goto(f"https://{site}/", wait_until='domcontentloaded', timeout=5000)
 
+            # Fetch hCaptcha API JS and extract version
             js = session.get('https://js.hcaptcha.com/1/api.js').text
-            version = re.findall(r'v1\/([A-Za-z0-9]+)\/static', js)[1]
+            version_match = re.search(r'v1/([A-Za-z0-9]+)/static', js)
+            version = version_match.group(1) if version_match else None
 
-            token = session.post('https://api2.hcaptcha.com/checksiteconfig', params={
+            if not version:
+                raise Exception("Could not extract hCaptcha version")
+
+            # Get checksiteconfig to retrieve req token
+            token_response = session.post('https://api2.hcaptcha.com/checksiteconfig', params={
                 'v': version,
                 'host': site,
                 'sitekey': sitekey,
                 'sc': '1',
                 'swa': '1',
                 'spst': 's',
-            }).json()["c"]["req"]
+            })
+            
+            token_data = token_response.json()
+            token = token_data.get("c", {}).get("req")
+            
+            if not token:
+                raise Exception("No req token received from checksiteconfig")
 
+            # Decode token to get hsw.js location
             decoded_token = jwt.decode(token, options={"verify_signature": False})
-            url = "https://newassets.hcaptcha.com" + decoded_token["l"] + "/hsw.js"
-            hsw_js = session.get(url).text
+            hsw_url = "https://newassets.hcaptcha.com" + decoded_token["l"] + "/hsw.js"
+            hsw_js = session.get(hsw_url).text
 
+            # Spoof webdriver
             await page.evaluate("Object.defineProperty(navigator, 'webdriver', {get: () => false})")
             
+            # Inject hsw.js
             try:
                 await page.add_script_tag(content=hsw_js)
             except Exception:
+                # Fallback injection method
                 await page.evaluate(f"""
                     (function() {{
                         const script = document.createElement('script');
@@ -139,42 +174,21 @@ async def hsw(req: str, site: str, sitekey: str, proxy: str = None) -> str:
                     }})();
                 """)
             
-            try:
+            # Wait for hsw function to be available
+            max_attempts = 50
+            for _ in range(max_attempts):
                 has_hsw = await page.evaluate("typeof hsw === 'function'")
                 if has_hsw:
-                    pass
-                else:
-                    max_wait_attempts = 50
-                    for attempt in range(max_wait_attempts):
-                        try:
-                            has_hsw = await page.evaluate("typeof hsw === 'function'")
-                            if has_hsw:
-                                break
-                        except Exception:
-                            pass
-                        if attempt < 5:
-                            await asyncio.sleep(0.01)
-                        else:
-                            await asyncio.sleep(0.02)
-                    else:
-                        has_hsw = False
-            except Exception:
-                has_hsw = False
-            
-            if not has_hsw:
-                try:
-                    await page.evaluate(hsw_js)
-                    await asyncio.sleep(0.05)
-                    has_hsw_retry = await page.evaluate("typeof hsw === 'function'")
-                    if not has_hsw_retry:
-                        raise Exception("hsw function not available after all injection attempts")
-                except Exception as e:
-                    raise Exception(f"hsw function not available: {e}")
-            
+                    break
+                await asyncio.sleep(0.02)
+            else:
+                raise Exception("hsw function not available after injection attempts")
+
+            # Execute hsw
             result = await page.evaluate("(req) => hsw(req)", req)
             
             return result
         
     except Exception as e:
-        print(f"HSW generation error: {e}")
+        print(f"HSW generation error: {str(e)}")
         return None
