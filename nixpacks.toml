@@ -1,0 +1,37 @@
+# nixpacks.toml - Install GTK3 and other libs needed for Camoufox/Firefox
+
+[phases.setup]
+  nixPkgs = [
+    'gtk3',               # provides libgtk-3.so.0
+    'nss',                # libnss3
+    'libdbusmenu-gtk3',   # sometimes needed
+    'atk',                # accessibility toolkit
+    'cairo',              # graphics
+    'pango',              # text rendering
+    'gdk-pixbuf',         # image loading
+    'libx11',             # X11
+    'libxext',
+    'libxrender',
+    'libxtst',
+    'libxi',
+    'libxrandr',
+    'libxcomposite',
+    'libxcursor',
+    'libxdamage',
+    'libxfixes',
+    'libxscrnsaver',
+    'libxmu',
+    'libxpm',
+    'libxft',
+    'libxinerama',
+    'libxkbcommon',
+    'libxkbfile',
+    'libxshmfence',
+    'libxxf86vm',
+    'libgl1-mesa-glx',    # OpenGL
+    'libegl1-mesa',
+    'libgbm1'
+  ]
+
+[phases.build]
+  cmds = ["pip install --no-cache-dir -r requirements.txt"]
