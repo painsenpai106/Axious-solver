@@ -1,7 +1,8 @@
-# Use a more complete Debian base (bookworm) instead of slim
+# Dockerfile - for Railway solver with Camoufox (headless Firefox)
+
 FROM python:3.11-bookworm
 
-# Install all required system libraries for Camoufox/Firefox headless
+# Install system dependencies required for Camoufox / Playwright / Firefox
 RUN apt-get update && apt-get install -y --no-install-recommends \
     libgtk-3-0 \
     libnss3 \
@@ -34,21 +35,22 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libegl1-mesa \
     libgbm1 \
     libasound2 \
+    libstdc++6 \
     wget \
     unzip \
-    && rm -rf /var/lib/apt/lists/*
+    ca-certificates \
+    && rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
 
 # Set working directory
 WORKDIR /app
 
-# Copy your code
+# Copy code and install Python deps
 COPY . .
-
-# Install Python dependencies
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Expose port (Railway uses $PORT, but we fallback)
-ENV PORT=8080
+# Environment variables for Playwright/Camoufox
+ENV PLAYWRIGHT_BROWSERS_PATH=/root/.cache/ms-playwright \
+    PORT=8080
 
-# Start the API
+# Start the FastAPI server
 CMD ["uvicorn", "api:app", "--host", "0.0.0.0", "--port", "$PORT", "--log-level", "info"]
