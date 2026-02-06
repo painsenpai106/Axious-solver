@@ -4,7 +4,7 @@ colorama
 requests
 httpx
 asyncio
-jwt
+pyjwt>=2.8.0
 fastapi
 uvicorn
 pydantic
