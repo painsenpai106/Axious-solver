@@ -6,7 +6,7 @@ import os
 import random
 from typing import Optional
 from camoufox.async_api import AsyncCamoufox
-import jwt
+from jwt import decode, PyJWTError   # ← FIXED: correct import from pyjwt
 
 # Hardcoded screen sizes (no more import from motion.py)
 COMMON_SCREEN_SIZES = [
@@ -154,7 +154,15 @@ async def hsw(req: str, site: str, sitekey: str, proxy: Optional[str] = None) ->
                 raise Exception("No req token received from checksiteconfig")
 
             # Decode token to get hsw.js location
-            decoded_token = jwt.decode(token, options={"verify_signature": False})
+            try:
+                decoded_token = decode(token, options={"verify_signature": False})
+                if "l" not in decoded_token:
+                    raise Exception("JWT token missing 'l' field")
+            except PyJWTError as jwt_err:
+                raise Exception(f"JWT decode failed: {str(jwt_err)}")
+            except Exception as e:
+                raise Exception(f"Unexpected error during JWT decode: {str(e)}")
+
             hsw_url = "https://newassets.hcaptcha.com" + decoded_token["l"] + "/hsw.js"
             hsw_js = session.get(hsw_url).text
 
@@ -164,7 +172,8 @@ async def hsw(req: str, site: str, sitekey: str, proxy: Optional[str] = None) ->
             # Inject hsw.js
             try:
                 await page.add_script_tag(content=hsw_js)
-            except Exception:
+            except Exception as inject_err:
+                print(f"Script tag injection failed: {str(inject_err)}")
                 # Fallback injection method
                 await page.evaluate(f"""
                     (function() {{
@@ -176,19 +185,22 @@ async def hsw(req: str, site: str, sitekey: str, proxy: Optional[str] = None) ->
             
             # Wait for hsw function to be available
             max_attempts = 50
-            for _ in range(max_attempts):
+            for attempt in range(max_attempts):
                 has_hsw = await page.evaluate("typeof hsw === 'function'")
                 if has_hsw:
                     break
                 await asyncio.sleep(0.02)
             else:
-                raise Exception("hsw function not available after injection attempts")
+                raise Exception(f"hsw function not available after {max_attempts} attempts")
 
             # Execute hsw
             result = await page.evaluate("(req) => hsw(req)", req)
             
+            print(f"HSW generation successful - result length: {len(result) if result else 0}")
             return result
         
     except Exception as e:
         print(f"HSW generation error: {str(e)}")
+        import traceback
+        traceback.print_exc()  # better debugging in Railway logs
         return None
