@@ -1,4 +1,4 @@
-# Dockerfile - for Railway solver with Camoufox (headless Firefox)
+# Dockerfile - fixed for Railway + Camoufox (headless Firefox)
 
 FROM python:3.11-bookworm
 
@@ -22,7 +22,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libxcursor1 \
     libxdamage1 \
     libxfixes3 \
-    libxscrnsaver1 \
+    libxscrnsaver \          # ← FIXED: removed trailing "1"
     libxmu6 \
     libxpm4 \
     libxft2 \
@@ -41,16 +41,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
     && rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
 
-# Set working directory
 WORKDIR /app
 
-# Copy code and install Python deps
 COPY . .
+
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Environment variables for Playwright/Camoufox
-ENV PLAYWRIGHT_BROWSERS_PATH=/root/.cache/ms-playwright \
-    PORT=8080
+ENV PORT=8080
 
-# Start the FastAPI server
 CMD ["uvicorn", "api:app", "--host", "0.0.0.0", "--port", "$PORT", "--log-level", "info"]
