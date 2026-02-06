@@ -1,8 +1,8 @@
-# Dockerfile - fixed for Railway + Camoufox (headless Firefox)
+# Dockerfile - fixed syntax for Railway + Camoufox
 
 FROM python:3.11-bookworm
 
-# Install system dependencies required for Camoufox / Playwright / Firefox
+# Install all required system libs for Camoufox headless Firefox
 RUN apt-get update && apt-get install -y --no-install-recommends \
     libgtk-3-0 \
     libnss3 \
@@ -22,7 +22,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libxcursor1 \
     libxdamage1 \
     libxfixes3 \
-    libxscrnsaver \          # ← FIXED: removed trailing "1"
+    libxscrnsaver \
     libxmu6 \
     libxpm4 \
     libxft2 \
