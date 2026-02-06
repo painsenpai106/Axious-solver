@@ -44,3 +44,4 @@ COPY . .
 RUN pip install --no-cache-dir -r requirements.txt
 
 # FIXED: shell form so $PORT expands correctly
+CMD uvicorn api:app --host 0.0.0.0 --port ${PORT:-8080} --log-level info
