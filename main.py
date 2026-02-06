@@ -6,9 +6,9 @@ import os
 import random
 from typing import Optional
 from camoufox.async_api import AsyncCamoufox
-from jwt import decode, PyJWTError   # ← FIXED: correct import from pyjwt
+from jwt import decode, PyJWTError
 
-# Hardcoded screen sizes (no more import from motion.py)
+# Hardcoded screen sizes
 COMMON_SCREEN_SIZES = [
     (1920, 1080),
     (1366, 768),
@@ -60,7 +60,6 @@ def get_random_proxy():
 async def hsw(req: str, site: str, sitekey: str, proxy: Optional[str] = None) -> Optional[str]:
     """
     Generates hCaptcha HSW token using Camoufox browser emulation.
-    Fully compatible with current setup - no Multibot dependency.
     """
     try:
         session = tls_client.Session(client_identifier="chrome_130", random_tls_extension_order=True)
@@ -101,16 +100,13 @@ async def hsw(req: str, site: str, sitekey: str, proxy: Optional[str] = None) ->
                 auth_part, server_part = proxy.split('@', 1)
                 username, password = auth_part.split(':', 1)
                 ip, port = server_part.split(':', 1)
-                
                 browser_options['proxy'] = {
                     'server': f'http://{ip}:{port}',
                     'username': username,
                     'password': password
                 }
             else:
-                browser_options['proxy'] = {
-                    'server': f'http://{proxy}'
-                }
+                browser_options['proxy'] = {'server': f'http://{proxy}'}
         
         async with AsyncCamoufox(**browser_options) as browser:
             screen_size = random.choice(COMMON_SCREEN_SIZES)
@@ -120,14 +116,14 @@ async def hsw(req: str, site: str, sitekey: str, proxy: Optional[str] = None) ->
             )
             page = await context.new_page()
             
-            # Block unnecessary requests to speed up
+            # Block unnecessary requests
             await page.route(f"https://{site}/", lambda r: r.fulfill(
                 status=200, 
                 content_type="text/html",
                 body="<html><head></head><body></body></html>"
             ))
             
-            await page.goto(f"https://{site}/", wait_until='domcontentloaded', timeout=5000)
+            await page.goto(f"https://{site}/", wait_until='domcontentloaded', timeout=15000)
 
             # Fetch hCaptcha API JS and extract version
             js = session.get('https://js.hcaptcha.com/1/api.js').text
@@ -137,7 +133,7 @@ async def hsw(req: str, site: str, sitekey: str, proxy: Optional[str] = None) ->
             if not version:
                 raise Exception("Could not extract hCaptcha version")
 
-            # Get checksiteconfig to retrieve req token
+            # Get req token from checksiteconfig
             token_response = session.post('https://api2.hcaptcha.com/checksiteconfig', params={
                 'v': version,
                 'host': site,
@@ -153,54 +149,76 @@ async def hsw(req: str, site: str, sitekey: str, proxy: Optional[str] = None) ->
             if not token:
                 raise Exception("No req token received from checksiteconfig")
 
-            # Decode token to get hsw.js location
+            # Decode token
             try:
                 decoded_token = decode(token, options={"verify_signature": False})
                 if "l" not in decoded_token:
                     raise Exception("JWT token missing 'l' field")
             except PyJWTError as jwt_err:
                 raise Exception(f"JWT decode failed: {str(jwt_err)}")
-            except Exception as e:
-                raise Exception(f"Unexpected error during JWT decode: {str(e)}")
 
             hsw_url = "https://newassets.hcaptcha.com" + decoded_token["l"] + "/hsw.js"
-            hsw_js = session.get(hsw_url).text
+            hsw_response = session.get(hsw_url)
+            if hsw_response.status_code != 200:
+                raise Exception(f"hsw.js fetch failed: {hsw_response.status_code} - {hsw_response.text[:200]}")
+            hsw_js = hsw_response.text
 
             # Spoof webdriver
             await page.evaluate("Object.defineProperty(navigator, 'webdriver', {get: () => false})")
             
-            # Inject hsw.js
+            # Improved injection with error logging
             try:
                 await page.add_script_tag(content=hsw_js)
-            except Exception as inject_err:
-                print(f"Script tag injection failed: {str(inject_err)}")
-                # Fallback injection method
+                print("Script tag injection succeeded")
+            except Exception as e:
+                print(f"Script tag injection failed: {str(e)}")
+                # Fallback: direct eval
                 await page.evaluate(f"""
                     (function() {{
-                        const script = document.createElement('script');
-                        script.textContent = {json.dumps(hsw_js)};
-                        (document.head || document.documentElement).appendChild(script);
+                        try {{
+                            eval({json.dumps(hsw_js)});
+                            console.log('hsw.js evaluated via fallback');
+                        }} catch (err) {{
+                            console.error('Fallback eval error: ' + err);
+                        }}
                     }})();
                 """)
-            
-            # Wait for hsw function to be available
-            max_attempts = 50
-            for attempt in range(max_attempts):
-                has_hsw = await page.evaluate("typeof hsw === 'function'")
+
+            # Wait longer and log status
+            max_attempts = 150  # increased from 50 (~3 seconds)
+            attempt = 0
+            while attempt < max_attempts:
+                attempt += 1
+                has_hsw = await page.evaluate("typeof window.hsw === 'function'")
                 if has_hsw:
+                    print(f"hsw function detected after {attempt} attempts")
                     break
+                
+                # Debug: log console for errors
+                if attempt % 30 == 0:
+                    console_msgs = await page.evaluate("window.console_msgs || []")
+                    if console_msgs:
+                        print("Console errors:", console_msgs)
+                
                 await asyncio.sleep(0.02)
             else:
+                # Final debug before fail
+                console_msgs = await page.evaluate("window.console_msgs || []")
+                page_content = await page.content()
+                print("Final page content snippet:", page_content[:500])
+                print("Console messages:", console_msgs)
                 raise Exception(f"hsw function not available after {max_attempts} attempts")
 
             # Execute hsw
             result = await page.evaluate("(req) => hsw(req)", req)
+            if not result:
+                raise Exception("hsw execution returned empty/null")
             
-            print(f"HSW generation successful - result length: {len(result) if result else 0}")
+            print(f"HSW generation successful - result length: {len(result)}")
             return result
         
     except Exception as e:
         print(f"HSW generation error: {str(e)}")
         import traceback
-        traceback.print_exc()  # better debugging in Railway logs
+        traceback.print_exc()
         return None
